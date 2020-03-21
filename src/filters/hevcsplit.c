@@ -42,6 +42,7 @@ typedef struct
 
 typedef struct
 {
+	Bool rwdsi, rwnal;
 	GF_FilterPid *ipid;
 	GF_List *outputs;
 	u32 num_tiles, got_p;
@@ -594,10 +595,12 @@ static char *hevcsplit_rewrite_nal(GF_Filter *filter, GF_HEVCSplitCtx *ctx, char
 	case GF_HEVC_NALU_SLICE_IDR_N_LP:
 	case GF_HEVC_NALU_SLICE_CRA:
 		*out_tile_index = hevcsplit_get_slice_tile_index(hevc);
-		buf_size = hevcsplit_remove_slice_address(ctx, in_nal, in_nal_size);
-		*out_nal_size = buf_size;
-		return ctx->buffer_nal;
-	//non-vcl, write to bitstream
+		if (ctx->rwnal) {
+			buf_size = hevcsplit_remove_slice_address(ctx, in_nal, in_nal_size);
+			*out_nal_size = buf_size;
+			return ctx->buffer_nal;
+		}
+        //non-vcl, write to bitstream
 	default:
 		*out_nal_size = in_nal_size;
 		return in_nal;
@@ -666,7 +669,7 @@ static GF_Err hevcsplit_configure_pid(GF_Filter *filter, GF_FilterPid *pid, Bool
 	u32 cfg_crc = 0, codecid, o_width, o_height;
 	s32 pps_id = -1, sps_id = -1;
 	const GF_PropertyValue *p, *dsi;
-	GF_Err e;
+	GF_Err e = GF_OK;
 	GF_HEVCSplitCtx *ctx = (GF_HEVCSplitCtx*)gf_filter_get_udta(filter);
 
 	if (is_remove) {
@@ -781,7 +784,8 @@ static GF_Err hevcsplit_configure_pid(GF_Filter *filter, GF_FilterPid *pid, Bool
 			gf_filter_pid_set_property(tpid->opid, GF_PROP_PID_CROP_POS, &PROP_VEC2I_INT(tpid->orig_x, tpid->orig_y));
 			gf_filter_pid_set_property(tpid->opid, GF_PROP_PID_ORIG_SIZE, &PROP_VEC2I_INT(o_width, o_height));
 			// rewrite the decoder config
-			e = hevcsplit_rewrite_dsi(ctx, tpid->opid, dsi->value.data.ptr, dsi->value.data.size, tpid->width, tpid->height);
+			if(ctx->rwdsi)
+				e = hevcsplit_rewrite_dsi(ctx, tpid->opid, dsi->value.data.ptr, dsi->value.data.size, tpid->width, tpid->height);
 			if (e) return e;
 
 			GF_LOG(GF_LOG_INFO, GF_LOG_CODEC, ("[HEVCTileSplit] output pid %dx%d (position was %dx%d)\n", tpid->width, tpid->height, tpid->orig_x, tpid->orig_y));
@@ -930,7 +934,9 @@ static const GF_FilterCapability HEVCSplitCaps[] =
 #define OFFS(_n)	#_n, offsetof(GF_HEVCSplitCtx, _n)
 
 static const GF_FilterArgs HEVCSplitArgs[] =
-{
+{	
+	{ OFFS(rwdsi), "rewrite dsi", GF_PROP_BOOL, "false", NULL, 0},
+	{ OFFS(rwnal), "rewrite nalu", GF_PROP_BOOL, "false", NULL, 0},
 	{0}
 };
 
